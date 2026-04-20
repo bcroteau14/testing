@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A personal testing sandbox — self-contained browser games and experiments. No build system, package manager, or external dependencies. Every file opens directly in a browser.
 
+## Git Workflow
+
+After every meaningful change, commit and push to [bcroteau14/testing](https://github.com/bcroteau14/testing) so work is never lost:
+
+```bash
+git add <changed files>
+git commit -m "short description of what changed and why"
+git push
+```
+
+Commit messages should be concise and specific — describe the change, not the process (e.g. `"add ball speed cap to Pong"` not `"made some updates"`). Commit at logical stopping points: after adding a feature, fixing a bug, or any edit the user approves.
+
 ## Running the Games
 
 Open any HTML file directly in a browser — no server required:
