@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PONG</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Press Start 2P', monospace;
+      background: #0a0a0a;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 20px;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      letter-spacing: 0.3em;
+      color: #39ff14;
+      text-shadow: 0 0 20px #39ff14aa;
+    }
+
+    #scoreboard {
+      display: flex;
+      align-items: center;
+      gap: 40px;
+      font-size: 0.7rem;
+      color: #888;
+    }
+
+    .score-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .score-label { font-size: 0.55rem; color: #666; }
+
+    .score-num {
+      font-size: 2rem;
+      color: #39ff14;
+      text-shadow: 0 0 12px #39ff1488;
+      min-width: 2ch;
+      text-align: center;
+    }
+
+    .wins-num {
+      font-size: 0.75rem;
+      color: #555;
+    }
+
+    .score-sep { font-size: 1.5rem; color: #444; padding-bottom: 10px; }
+
+    canvas {
+      display: block;
+      border: 2px solid #222;
+      box-shadow: 0 0 40px #39ff1422;
+      image-rendering: pixelated;
+    }
+
+    #hint {
+      font-size: 0.5rem;
+      color: #444;
+      letter-spacing: 0.1em;
+    }
+
+    #theme-toggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: none;
+      border: 2px solid #444;
+      border-radius: 20px;
+      padding: 8px 16px;
+      font-size: 0.55rem;
+      font-family: 'Press Start 2P', monospace;
+      cursor: pointer;
+      color: #888;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #theme-toggle:hover { border-color: #39ff14; color: #39ff14; }
+
+    /* ── Light mode ── */
+    body.light { background: #f0ede6; color: #111; }
+    body.light h1 { color: #1a6e00; text-shadow: none; }
+    body.light .score-num { color: #1a6e00; text-shadow: none; }
+    body.light .score-label { color: #888; }
+    body.light .wins-num { color: #aaa; }
+    body.light .score-sep { color: #bbb; }
+    body.light canvas { border-color: #ccc; box-shadow: none; }
+    body.light #hint { color: #bbb; }
+    body.light #theme-toggle { border-color: #bbb; color: #888; }
+    body.light #theme-toggle:hover { border-color: #1a6e00; color: #1a6e00; }
+  </style>
+</head>
+<body>
+  <button id="theme-toggle">☀ Light</button>
+  <h1>PONG</h1>
+
+  <div id="scoreboard">
+    <div class="score-block">
+      <div class="score-label">PLAYER</div>
+      <div class="score-num" id="playerScore">0</div>
+      <div class="wins-num" id="playerWins">0 WINS</div>
+    </div>
+    <div class="score-sep">:</div>
+    <div class="score-block">
+      <div class="score-label">CPU</div>
+      <div class="score-num" id="cpuScore">0</div>
+      <div class="wins-num" id="cpuWins">0 WINS</div>
+    </div>
+  </div>
+
+  <canvas id="canvas" width="600" height="400"></canvas>
+  <div id="hint">W / S  OR  ↑ / ↓  TO MOVE  ·  SPACE TO PAUSE</div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    const WIN_SCORE = 5;
+    const PADDLE_W = 12, PADDLE_H = 72, PADDLE_SPEED = 5;
+    const BALL_R = 7;
+    const BALL_INIT_SPEED = 4.5;
+    const BALL_MAX_SPEED = 10;
+    const AI_SPEED = 3.8;
+    const AI_ERROR = 18; // px of intentional imprecision
+
+    const STATE = { WAITING: 0, PLAYING: 1, POINT: 2, WON: 3 };
+
+    let state, ball, player, cpu, matchWins, keys, pointTimeout;
+
+    function initGame() {
+      matchWins = { player: 0, cpu: 0 };
+      newMatch();
+    }
+
+    function newMatch() {
+      player = { x: 20, y: H / 2 - PADDLE_H / 2, w: PADDLE_W, h: PADDLE_H, score: 0 };
+      cpu    = { x: W - 20 - PADDLE_W, y: H / 2 - PADDLE_H / 2, w: PADDLE_W, h: PADDLE_H, score: 0 };
+      updateScoreDisplay();
+      newRound(true);
+    }
+
+    function newRound(waiting) {
+      clearTimeout(pointTimeout);
+      const angle = (Math.random() * 60 - 30) * Math.PI / 180;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      ball = {
+        x: W / 2, y: H / 2,
+        vx: Math.cos(angle) * BALL_INIT_SPEED * dir,
+        vy: Math.sin(angle) * BALL_INIT_SPEED,
+        r: BALL_R
+      };
+      state = waiting ? STATE.WAITING : STATE.PLAYING;
+    }
+
+    function updateScoreDisplay() {
+      document.getElementById('playerScore').textContent = player.score;
+      document.getElementById('cpuScore').textContent    = cpu.score;
+      document.getElementById('playerWins').textContent  = matchWins.player + ' WINS';
+      document.getElementById('cpuWins').textContent     = matchWins.cpu + ' WINS';
+    }
+
+    // ── Theme ──────────────────────────────────────────────────────────────
+    let theme = {};
+    function updateTheme() {
+      const light = document.body.classList.contains('light');
+      theme = {
+        bg:      light ? '#f0ede6' : '#0a0a0a',
+        paddle:  light ? '#1a1a1a' : '#ffffff',
+        ball:    light ? '#1a6e00' : '#39ff14',
+        divider: light ? '#cccccc' : '#222222',
+        overlay: light ? 'rgba(240,237,230,0.88)' : 'rgba(10,10,10,0.88)',
+        text:    light ? '#1a1a1a' : '#39ff14',
+        subtext: light ? '#888888' : '#666666',
+        glow:    light ? 'none' : '0 0 8px #39ff14aa',
+      };
+    }
+
+    // ── Input ──────────────────────────────────────────────────────────────
+    keys = {};
+    document.addEventListener('keydown', e => {
+      keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (state === STATE.WAITING || state === STATE.WON) {
+          if (state === STATE.WON) newMatch();
+          state = STATE.PLAYING;
+        } else if (state === STATE.PLAYING) {
+          state = STATE.PAUSED;
+        } else if (state === STATE.PAUSED) {
+          state = STATE.PLAYING;
+        }
+      }
+    });
+    document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+    canvas.addEventListener('click', () => {
+      if (state === STATE.WAITING || state === STATE.WON) {
+        if (state === STATE.WON) newMatch();
+        state = STATE.PLAYING;
+      }
+    });
+
+    // ── Update ─────────────────────────────────────────────────────────────
+    function update() {
+      if (state !== STATE.PLAYING) return;
+
+      // Player paddle
+      if (keys['KeyW'] || keys['ArrowUp'])   player.y -= PADDLE_SPEED;
+      if (keys['KeyS'] || keys['ArrowDown']) player.y += PADDLE_SPEED;
+      player.y = Math.max(0, Math.min(H - PADDLE_H, player.y));
+
+      // AI paddle — follows ball with speed cap + error margin
+      const cpuCenter = cpu.y + PADDLE_H / 2;
+      const target = ball.y + (ball.vy > 0 ? AI_ERROR : -AI_ERROR);
+      if (cpuCenter < target - 4) cpu.y += AI_SPEED;
+      else if (cpuCenter > target + 4) cpu.y -= AI_SPEED;
+      cpu.y = Math.max(0, Math.min(H - PADDLE_H, cpu.y));
+
+      // Ball movement
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // Wall bounce (top/bottom)
+      if (ball.y - ball.r <= 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
+      if (ball.y + ball.r >= H) { ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); }
+
+      // Paddle collision helper
+      function hitPaddle(p) {
+        return ball.x - ball.r < p.x + p.w &&
+               ball.x + ball.r > p.x &&
+               ball.y > p.y && ball.y < p.y + p.h;
+      }
+
+      if (hitPaddle(player) && ball.vx < 0) {
+        ball.x = player.x + player.w + ball.r;
+        const rel = (ball.y - (player.y + PADDLE_H / 2)) / (PADDLE_H / 2);
+        const angle = rel * 60 * Math.PI / 180;
+        const speed = Math.min(Math.hypot(ball.vx, ball.vy) + 0.3, BALL_MAX_SPEED);
+        ball.vx =  Math.cos(angle) * speed;
+        ball.vy =  Math.sin(angle) * speed;
+      }
+
+      if (hitPaddle(cpu) && ball.vx > 0) {
+        ball.x = cpu.x - ball.r;
+        const rel = (ball.y - (cpu.y + PADDLE_H / 2)) / (PADDLE_H / 2);
+        const angle = rel * 60 * Math.PI / 180;
+        const speed = Math.min(Math.hypot(ball.vx, ball.vy) + 0.3, BALL_MAX_SPEED);
+        ball.vx = -Math.cos(angle) * speed;
+        ball.vy =  Math.sin(angle) * speed;
+      }
+
+      // Scoring
+      if (ball.x - ball.r > W) { score('player'); return; }
+      if (ball.x + ball.r < 0) { score('cpu'); return; }
+    }
+
+    function score(who) {
+      if (who === 'player') player.score++; else cpu.score++;
+      updateScoreDisplay();
+      state = STATE.POINT;
+
+      if (player.score >= WIN_SCORE || cpu.score >= WIN_SCORE) {
+        if (who === 'player') matchWins.player++; else matchWins.cpu++;
+        updateScoreDisplay();
+        state = STATE.WON;
+      } else {
+        pointTimeout = setTimeout(() => newRound(false), 1200);
+      }
+    }
+
+    // ── Draw ───────────────────────────────────────────────────────────────
+    function draw() {
+      ctx.fillStyle = theme.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Center dashed line
+      ctx.setLineDash([10, 14]);
+      ctx.strokeStyle = theme.divider;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, 0);
+      ctx.lineTo(W / 2, H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Paddles
+      ctx.fillStyle = theme.paddle;
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.fillRect(cpu.x, cpu.y, cpu.w, cpu.h);
+
+      // Ball (with glow in dark mode)
+      ctx.save();
+      if (theme.glow !== 'none') {
+        ctx.shadowColor = '#39ff14';
+        ctx.shadowBlur = 16;
+      }
+      ctx.fillStyle = theme.ball;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Overlays
+      if (state === STATE.WAITING) {
+        drawOverlay('PONG', 'CLICK OR PRESS SPACE TO START');
+      } else if (state === STATE.PAUSED) {
+        drawOverlay('PAUSED', 'PRESS SPACE TO RESUME');
+      } else if (state === STATE.WON) {
+        const winner = player.score >= WIN_SCORE ? 'YOU WIN!' : 'CPU WINS!';
+        drawOverlay(winner, 'SPACE OR CLICK FOR NEW MATCH');
+      }
+    }
+
+    function drawOverlay(title, sub) {
+      ctx.fillStyle = theme.overlay;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = theme.text;
+      ctx.font = "bold 28px 'Press Start 2P', monospace";
+      if (theme.glow !== 'none') {
+        ctx.shadowColor = '#39ff14';
+        ctx.shadowBlur = 20;
+      }
+      ctx.fillText(title, W / 2, H / 2 - 20);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = theme.subtext;
+      ctx.font = "10px 'Press Start 2P', monospace";
+      ctx.fillText(sub, W / 2, H / 2 + 20);
+    }
+
+    // ── Loop ───────────────────────────────────────────────────────────────
+    function loop() {
+      updateTheme();
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // ── Theme toggle ───────────────────────────────────────────────────────
+    const themeBtn = document.getElementById('theme-toggle');
+    themeBtn.addEventListener('click', () => {
+      const isLight = document.body.classList.toggle('light');
+      themeBtn.textContent = isLight ? '🌙 Dark' : '☀ Light';
+    });
+
+    initGame();
+    loop();
+  </script>
+</body>
+</html>
